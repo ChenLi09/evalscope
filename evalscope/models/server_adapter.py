@@ -34,6 +34,7 @@ class ServerModelAdapter(BaseModelAdapter):
             base_url=self.api_url,
         )
         self.supported_params = self._get_supported_params()
+        self.supported_params_completion = self._get_supported_params_completion()
 
         self.seed = kwargs.get('seed', None)
         self.timeout = kwargs.get('timeout', 60)
@@ -43,6 +44,10 @@ class ServerModelAdapter(BaseModelAdapter):
 
     def _get_supported_params(self):
         sig = signature(self.client.chat.completions.create)
+        return list(sig.parameters.keys())
+    
+    def _get_supported_params_completion(self):
+        sig = signature(self.client.completions.create)
         return list(sig.parameters.keys())
 
     def predict(self, inputs: List[dict], infer_cfg: dict = None) -> List[dict]:
@@ -75,9 +80,11 @@ class ServerModelAdapter(BaseModelAdapter):
             query = data[0]
             system_prompt = input_item.get('system_prompt', None)
 
+        request_type = infer_cfg.get("request_type", "chat")
+
         content = self.make_request_content(query, system_prompt)
-        request_json = self.make_request(content, infer_cfg)
-        response = self.send_request(request_json)
+        request_json = self.make_request(content, request_type, infer_cfg)
+        response = self.send_request(request_json, request_type)
         return response
 
     def make_request_content(self, query: str, system_prompt: Optional[str] = None) -> list:
@@ -92,7 +99,7 @@ class ServerModelAdapter(BaseModelAdapter):
 
         return messages
 
-    def make_request(self, content: list, infer_cfg: dict = {}) -> dict:
+    def make_request(self, content: list, request_type: str, infer_cfg: dict = {}) -> dict:
         """Make request to remote API."""
         # Format request JSON according to OpenAI API format
         from evalscope.config import DEFAULT_GENERATION_CONFIG
@@ -102,7 +109,10 @@ class ServerModelAdapter(BaseModelAdapter):
                 'temperature': 0.0,
             }
 
-        request_json = {'model': self.model_id, 'messages': content, **infer_cfg}
+        if request_type == "chat":
+            request_json = {'model': self.model_id, 'messages': content, **infer_cfg}
+        else:
+            request_json = {'model': self.model_id, 'prompt': content[-1]["content"], **infer_cfg}
 
         if self.timeout:
             request_json['timeout'] = self.timeout
@@ -115,11 +125,11 @@ class ServerModelAdapter(BaseModelAdapter):
 
         return request_json
 
-    def _parse_extra_params(self, request_json):
+    def _parse_extra_params(self, request_json, supported_params):
         api_params = {}
         extra_body = {}
         for key, value in request_json.items():
-            if key in self.supported_params:
+            if key in supported_params:
                 api_params[key] = value
             else:
                 extra_body[key] = value
@@ -128,10 +138,14 @@ class ServerModelAdapter(BaseModelAdapter):
             api_params['extra_body'] = extra_body
         return api_params
 
-    def send_request(self, request_json: dict) -> dict:
+    def send_request(self, request_json: dict, request_type: str) -> dict:
         try:
-            parsed_request = self._parse_extra_params(request_json)
-            response = self.client.chat.completions.create(**parsed_request)
+            if request_type == "chat":
+                parsed_request = self._parse_extra_params(request_json, self.supported_params)
+                response = self.client.chat.completions.create(**parsed_request)
+            else:
+                parsed_request = self._parse_extra_params(request_json, self.supported_params_completion)
+                response = self.client.completions.create(**parsed_request)
 
             if response and self.stream:
                 response = self._collect_stream_response(response)

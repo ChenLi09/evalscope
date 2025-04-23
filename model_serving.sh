@@ -1,0 +1,1 @@
+vllm serve /home/share/reasoning/DeepSeek-R1-Distill-Qwen-32B --served-model-name DeepSeek-R1-Distill-Qwen-32B --trust-remote-code --tensor-parallel-size 8
