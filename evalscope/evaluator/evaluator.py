@@ -208,7 +208,10 @@ class Evaluator(object):
         rev_choices = []
         for choice in choices:
             raw_input_d: dict = review_res[AnswerKeys.RAW_INPUT]
-            answer_content = choice[ReviewKeys.MESSAGE][ReviewKeys.CONTENT]
+            try:
+                answer_content = choice[ReviewKeys.MESSAGE][ReviewKeys.CONTENT]
+            except:
+                answer_content = choice["text"]
             gold_content = self.data_adapter.get_gold_answer(raw_input_d)
 
             # Get review result based on judge strategy
